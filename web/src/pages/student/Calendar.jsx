@@ -1,72 +1,127 @@
 import { useEffect, useState } from 'react';
 import api from '../../api';
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const FULL_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function startOfWeek(date) {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay());
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function toYMD(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function fmt(dateStr) {
+  // dateStr = YYYY-MM-DD, parse as local date
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 export default function Calendar() {
-  const [classes, setClasses] = useState([]);
+  const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
+  const [sessions, setSessions] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
-  const [booking, setBooking] = useState(null);
+  const [bookingTarget, setBookingTarget] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const load = async () => {
-    const [cls, bk] = await Promise.all([api.get('/classes'), api.get('/bookings/mine')]);
-    setClasses(cls.data);
-    setMyBookings(bk.data);
-  };
-  useEffect(() => { load(); }, []);
+  const weekEnd = addDays(weekStart, 6);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const isBooked = classId => myBookings.find(b => b.class_id === classId);
+  useEffect(() => {
+    const from = toYMD(weekStart);
+    const to = toYMD(weekEnd);
+    Promise.all([
+      api.get('/classes/sessions', { params: { from, to } }),
+      api.get('/bookings/mine'),
+    ]).then(([s, b]) => {
+      setSessions(s.data);
+      setMyBookings(b.data);
+    });
+  }, [weekStart]);
 
-  const book = async cls => {
+  const isBooked = sessionId => myBookings.find(b => b.session_id === sessionId);
+
+  const book = async session => {
     setError(''); setMessage('');
     try {
-      const { data } = await api.post('/bookings', { class_id: cls.id });
+      const { data } = await api.post('/bookings', { session_id: session.id });
       setMessage(data.message);
-      setBooking(null);
-      load();
+      setBookingTarget(null);
+      // Refresh
+      const from = toYMD(weekStart);
+      const to = toYMD(weekEnd);
+      Promise.all([api.get('/classes/sessions', { params: { from, to } }), api.get('/bookings/mine')])
+        .then(([s, b]) => { setSessions(s.data); setMyBookings(b.data); });
     } catch (err) {
       setError(err.response?.data?.error || 'Booking failed');
     }
   };
 
-  const cancel = async classId => {
-    const b = myBookings.find(b => b.class_id === classId);
-    if (!b) return;
-    if (!confirm('Cancel this booking?')) return;
+  const cancel = async sessionId => {
+    const b = myBookings.find(b => b.session_id === sessionId);
+    if (!b || !confirm('Cancel this booking?')) return;
     await api.delete(`/bookings/${b.id}`);
     setMessage('Booking cancelled.');
-    load();
+    const from = toYMD(weekStart);
+    const to = toYMD(weekEnd);
+    Promise.all([api.get('/classes/sessions', { params: { from, to } }), api.get('/bookings/mine')])
+      .then(([s, b]) => { setSessions(s.data); setMyBookings(b.data); });
   };
 
-  const daysWithClasses = [...new Set(classes.map(c => c.day_of_week))].sort();
+  const prevWeek = () => setWeekStart(w => addDays(w, -7));
+  const nextWeek = () => setWeekStart(w => addDays(w, 7));
+  const goToday  = () => { setWeekStart(startOfWeek(new Date())); setSelectedDay(new Date().getDay()); };
 
-  const dayClasses = classes.filter(c => c.day_of_week === selectedDay).sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const selectedDate = toYMD(weekDays[selectedDay]);
+  const dayClasses = sessions.filter(s => s.date === selectedDate).sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  const weekLabel = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      <h2 className="text-2xl font-bold text-gray-800 mb-2">Weekly Class Schedule</h2>
-      <p className="text-gray-500 text-sm mb-6">Browse and book your classes for the week</p>
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-bold text-gray-800">Class Schedule</h2>
+        <button onClick={goToday} className="text-sm text-brand-600 hover:underline">Today</button>
+      </div>
 
       {message && <div className="bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-3 mb-4 text-sm">{message}</div>}
-      {error && <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg px-4 py-3 mb-4 text-sm">{error}</div>}
+      {error   && <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg px-4 py-3 mb-4 text-sm">{error}</div>}
 
-      {/* Day selector */}
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-        {DAYS.map((day, i) => {
-          const hasCls = daysWithClasses.includes(i);
+      {/* Week navigator */}
+      <div className="flex items-center justify-between mb-4 bg-white rounded-xl shadow px-4 py-3">
+        <button onClick={prevWeek} className="text-gray-400 hover:text-brand-600 text-xl px-2">‹</button>
+        <span className="text-sm font-semibold text-gray-700">{weekLabel}</span>
+        <button onClick={nextWeek} className="text-gray-400 hover:text-brand-600 text-xl px-2">›</button>
+      </div>
+
+      {/* Day tabs */}
+      <div className="grid grid-cols-7 gap-1 mb-6">
+        {weekDays.map((day, i) => {
+          const ymd = toYMD(day);
+          const count = sessions.filter(s => s.date === ymd).length;
+          const isToday = ymd === toYMD(new Date());
           const isSelected = selectedDay === i;
           return (
-            <button key={i} onClick={() => setSelectedDay(i)} disabled={!hasCls}
-              className={`flex flex-col items-center px-4 py-3 rounded-xl min-w-[72px] transition font-medium
-                ${isSelected ? 'bg-brand-600 text-white shadow' : hasCls ? 'bg-white text-gray-700 border border-gray-200 hover:border-brand-400' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}`}>
-              <span className="text-xs mb-0.5">{SHORT_DAYS[i]}</span>
-              {hasCls && (
-                <span className={`text-xs rounded-full w-5 h-5 flex items-center justify-center ${isSelected ? 'bg-white/20' : 'bg-brand-100 text-brand-700'}`}>
-                  {classes.filter(c => c.day_of_week === i).length}
+            <button key={i} onClick={() => setSelectedDay(i)}
+              className={`flex flex-col items-center py-2 rounded-xl transition
+                ${isSelected ? 'bg-brand-600 text-white shadow' : 'bg-white text-gray-600 hover:border-brand-300 border border-gray-100'}`}>
+              <span className="text-xs font-medium">{DAYS[i]}</span>
+              <span className={`text-lg font-bold ${isToday && !isSelected ? 'text-brand-600' : ''}`}>{day.getDate()}</span>
+              {count > 0 && (
+                <span className={`text-xs px-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-white/30 text-white' : 'bg-brand-100 text-brand-700'}`}>
+                  {count}
                 </span>
               )}
             </button>
@@ -74,41 +129,44 @@ export default function Calendar() {
         })}
       </div>
 
-      {/* Class cards */}
-      <h3 className="text-lg font-semibold text-gray-700 mb-4">{DAYS[selectedDay]}</h3>
+      {/* Classes for selected day */}
+      <h3 className="text-lg font-semibold text-gray-700 mb-3">
+        {FULL_DAYS[selectedDay]}, {fmt(selectedDate)}
+      </h3>
+
       {dayClasses.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">No classes on {DAYS[selectedDay]}</div>
+        <div className="text-center py-16 text-gray-400 bg-white rounded-xl">No classes scheduled this day</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {dayClasses.map(cls => {
-            const existingBooking = isBooked(cls.id);
-            const isFull = cls.booked_count >= cls.capacity;
+        <div className="space-y-4">
+          {dayClasses.map(session => {
+            const booked = isBooked(session.id);
+            const full = session.booked_count >= session.capacity;
             return (
-              <div key={cls.id} className={`bg-white rounded-xl shadow border-l-4 p-5 ${existingBooking ? 'border-brand-500' : isFull ? 'border-yellow-400' : 'border-green-400'}`}>
+              <div key={session.id} className={`bg-white rounded-xl shadow border-l-4 p-5 ${booked ? 'border-brand-500' : full ? 'border-yellow-400' : 'border-green-400'}`}>
                 <div className="flex justify-between items-start mb-2">
-                  <h4 className="font-semibold text-gray-800 text-lg">{cls.title}</h4>
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${isFull ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                    {isFull ? `Full · ${cls.waitlist_count} waitlisted` : `${cls.capacity - cls.booked_count} spots left`}
+                  <h4 className="font-semibold text-gray-800 text-lg">{session.title}</h4>
+                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${full ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                    {full ? `Full · ${session.waitlist_count} waiting` : `${session.capacity - session.booked_count} spots left`}
                   </span>
                 </div>
-                {cls.description && <p className="text-sm text-gray-500 mb-2">{cls.description}</p>}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mb-4">
-                  <span>🕐 {cls.start_time} · {cls.duration_mins} min</span>
-                  <span>👤 {cls.instructor}</span>
-                  {cls.location && <span>📍 {cls.location}</span>}
+                {session.description && <p className="text-sm text-gray-500 mb-2">{session.description}</p>}
+                <div className="flex flex-wrap gap-x-4 text-sm text-gray-500 mb-4">
+                  <span>🕐 {session.start_time} · {session.duration_mins} min</span>
+                  <span>👤 {session.instructor}</span>
+                  {session.location && <span>📍 {session.location}</span>}
                 </div>
 
-                {existingBooking ? (
+                {booked ? (
                   <div className="flex items-center justify-between">
-                    <span className={`text-sm font-medium ${existingBooking.status === 'waitlist' ? 'text-yellow-600' : 'text-green-600'}`}>
-                      {existingBooking.status === 'waitlist' ? `⏳ Waitlist #${existingBooking.waitlist_position}` : '✓ Booked'}
+                    <span className={`text-sm font-medium ${booked.status === 'waitlist' ? 'text-yellow-600' : 'text-green-600'}`}>
+                      {booked.status === 'waitlist' ? `⏳ Waitlist #${booked.waitlist_position}` : '✓ Booked'}
                     </span>
-                    <button onClick={() => cancel(cls.id)} className="text-sm text-red-400 hover:underline">Cancel</button>
+                    <button onClick={() => cancel(session.id)} className="text-sm text-red-400 hover:underline">Cancel</button>
                   </div>
                 ) : (
-                  <button onClick={() => setBooking(cls)}
+                  <button onClick={() => setBookingTarget(session)}
                     className="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium py-2 rounded-lg transition">
-                    {isFull ? 'Join Waitlist' : 'Book Class'}
+                    {full ? 'Join Waitlist' : 'Book Class'}
                   </button>
                 )}
               </div>
@@ -117,20 +175,23 @@ export default function Calendar() {
         </div>
       )}
 
-      {/* Confirm booking modal */}
-      {booking && (
+      {/* Confirm modal */}
+      {bookingTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-            <h3 className="text-lg font-semibold mb-1">{booking.title}</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              {DAYS[booking.day_of_week]} · {booking.start_time} · {booking.instructor}
-              {booking.booked_count >= booking.capacity && <span className="block text-yellow-600 mt-1">This class is full — you'll be added to the waitlist.</span>}
-            </p>
+            <h3 className="text-lg font-semibold mb-1">{bookingTarget.title}</h3>
+            <p className="text-sm text-gray-500 mb-1">{fmt(bookingTarget.date)} · {bookingTarget.start_time}</p>
+            <p className="text-sm text-gray-500 mb-4">👤 {bookingTarget.instructor}</p>
+            {bookingTarget.booked_count >= bookingTarget.capacity && (
+              <p className="text-yellow-600 text-sm mb-4">This class is full — you'll be added to the waitlist.</p>
+            )}
             {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
             <div className="flex gap-3">
-              <button onClick={() => { setBooking(null); setError(''); }} className="flex-1 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
-              <button onClick={() => book(booking)} className="flex-1 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
-                {booking.booked_count >= booking.capacity ? 'Join Waitlist' : 'Confirm Booking'}
+              <button onClick={() => { setBookingTarget(null); setError(''); }}
+                className="flex-1 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              <button onClick={() => book(bookingTarget)}
+                className="flex-1 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700">
+                {bookingTarget.booked_count >= bookingTarget.capacity ? 'Join Waitlist' : 'Confirm Booking'}
               </button>
             </div>
           </div>

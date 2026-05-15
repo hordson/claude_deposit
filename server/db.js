@@ -34,27 +34,35 @@ db.exec(`
     title TEXT NOT NULL,
     description TEXT,
     instructor TEXT NOT NULL,
-    day_of_week INTEGER NOT NULL,
-    start_time TEXT NOT NULL,
-    duration_mins INTEGER NOT NULL DEFAULT 60,
-    capacity INTEGER NOT NULL DEFAULT 15,
+    duration_mins INTEGER NOT NULL DEFAULT 75,
+    capacity INTEGER NOT NULL DEFAULT 20,
     location TEXT,
     active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS class_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    capacity_override INTEGER,
+    cancelled INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
   CREATE TABLE IF NOT EXISTS bookings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+    session_id INTEGER NOT NULL REFERENCES class_sessions(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'confirmed',
     waitlist_position INTEGER,
     booked_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(user_id, class_id)
+    UNIQUE(user_id, session_id)
   );
 `);
 
-// Wrap prepare to add .get() convenience (returns first row)
+// Convenience: add .get() that returns first row (like better-sqlite3)
 const origPrepare = db.prepare.bind(db);
 db.prepare = (sql) => {
   const stmt = origPrepare(sql);

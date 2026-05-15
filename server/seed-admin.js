@@ -8,8 +8,8 @@ const bcrypt = require('bcryptjs');
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 
-const ADMIN_EMAIL = 'admin@yourstudio.com';   // ← change this
-const ADMIN_PASSWORD = 'ChangeMe123!';         // ← change this
+const ADMIN_EMAIL = 'blaire@yourshowdistrict.art';   // ← change this
+const ADMIN_PASSWORD = 'Yourshow2023';         // ← change this
 
 const db = new DatabaseSync(path.join(__dirname, 'studio.db'));
 db.exec('PRAGMA foreign_keys = ON');
