@@ -28,13 +28,19 @@ function fmt(dateStr) {
 }
 
 export default function Calendar() {
-  const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
+  const thisWeek = startOfWeek(new Date());
+  const nextWeek = addDays(thisWeek, 7);
+
+  const [weekStart, setWeekStart] = useState(thisWeek);
   const [sessions, setSessions] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
   const [bookingTarget, setBookingTarget] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  const isThisWeek = toYMD(weekStart) === toYMD(thisWeek);
+  const isNextWeek = toYMD(weekStart) === toYMD(nextWeek);
 
   const weekEnd = addDays(weekStart, 6);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -80,9 +86,9 @@ export default function Calendar() {
       .then(([s, b]) => { setSessions(s.data); setMyBookings(b.data); });
   };
 
-  const prevWeek = () => setWeekStart(w => addDays(w, -7));
-  const nextWeek = () => setWeekStart(w => addDays(w, 7));
-  const goToday  = () => { setWeekStart(startOfWeek(new Date())); setSelectedDay(new Date().getDay()); };
+  const prevWeek = () => { if (!isThisWeek) setWeekStart(w => addDays(w, -7)); };
+  const goNextWeek = () => { if (!isNextWeek) setWeekStart(w => addDays(w, 7)); };
+  const goToday  = () => { setWeekStart(thisWeek); setSelectedDay(new Date().getDay()); };
 
   const selectedDate = toYMD(weekDays[selectedDay]);
   const dayClasses = sessions.filter(s => s.date === selectedDate).sort((a, b) => a.start_time.localeCompare(b.start_time));
@@ -101,9 +107,14 @@ export default function Calendar() {
 
       {/* Week navigator */}
       <div className="flex items-center justify-between mb-4 bg-white rounded-xl shadow px-4 py-3">
-        <button onClick={prevWeek} className="text-gray-400 hover:text-brand-600 text-xl px-2">‹</button>
-        <span className="text-sm font-semibold text-gray-700">{weekLabel}</span>
-        <button onClick={nextWeek} className="text-gray-400 hover:text-brand-600 text-xl px-2">›</button>
+        <button onClick={prevWeek} disabled={isThisWeek}
+          className={`text-xl px-2 ${isThisWeek ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-brand-600'}`}>‹</button>
+        <div className="text-center">
+          <span className="text-sm font-semibold text-gray-700">{weekLabel}</span>
+          <p className="text-xs text-brand-600 font-medium">{isThisWeek ? 'This Week' : 'Next Week'}</p>
+        </div>
+        <button onClick={goNextWeek} disabled={isNextWeek}
+          className={`text-xl px-2 ${isNextWeek ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-brand-600'}`}>›</button>
       </div>
 
       {/* Day tabs */}
